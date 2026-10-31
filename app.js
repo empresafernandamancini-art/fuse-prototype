@@ -4110,7 +4110,16 @@ function ensurePropositoState() {
     }
 }
 
+// CONTROLE DE MANUTENÇÃO TEMPORÁRIA DA ABA PROPÓSITO
+const IS_PROPOSITO_MAINTENANCE = true;
+
+function checkPropositoMaintenance() {
+    const maintenanceEl = document.getElementById("proposito-maintenance-screen");
+    return (typeof IS_PROPOSITO_MAINTENANCE !== 'undefined' && IS_PROPOSITO_MAINTENANCE) || (maintenanceEl && maintenanceEl.style.display !== "none");
+}
+
 function selectPropositoDay(dayNum) {
+    if (checkPropositoMaintenance()) return;
     ensurePropositoState();
     if (dayNum < 1 || dayNum > 7) return;
     userState.proposito.activeDay = dayNum;
@@ -4118,6 +4127,7 @@ function selectPropositoDay(dayNum) {
 }
 
 function togglePropositoCheckin() {
+    if (checkPropositoMaintenance()) return;
     ensurePropositoState();
     const activeDay = userState.proposito.activeDay;
     const completed = userState.proposito.completedDays;
@@ -4142,10 +4152,17 @@ function togglePropositoCheckin() {
 }
 
 function savePropositoReflection() {
+    if (checkPropositoMaintenance()) return;
     // Guia de anotações manuais no caderno / Bíblia
 }
 
 function renderPropositoUI() {
+    if (checkPropositoMaintenance()) {
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+        return;
+    }
     ensurePropositoState();
     
     const counterEl = document.getElementById("proposito-counter-txt");

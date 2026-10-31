@@ -766,6 +766,36 @@
 
             <!-- TAB: PROPÓSITO 7 DIAS — EVANGELHO DE JOÃO -->
             <section id="tab-challenge" class="app-tab-panel">
+                <!-- TELA DE MANUTENÇÃO TEMPORÁRIA (EXCLUSIVA DA ABA PROPÓSITO) -->
+                <div id="proposito-maintenance-screen" class="proposito-maintenance-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 60vh; padding: 24px 12px; margin: auto 0;">
+                    <div class="maintenance-card" style="width: 100%; max-width: 360px; background: linear-gradient(145deg, #FFFFFF 0%, #FFF5F6 100%); border: 1.5px solid #FECDD3; border-radius: 24px; padding: 36px 22px 30px; box-shadow: 0 16px 40px rgba(251, 113, 133, 0.12); position: relative; overflow: hidden;">
+                        <div style="position: absolute; top: -30px; left: 50%; transform: translateX(-50%); width: 140px; height: 140px; background: radial-gradient(circle, rgba(251, 113, 133, 0.22) 0%, rgba(255, 255, 255, 0) 70%); border-radius: 50%; pointer-events: none;"></div>
+                        <div style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px; background: rgba(251, 113, 133, 0.1); border: 1px solid rgba(251, 113, 133, 0.25); margin-bottom: 20px;">
+                            <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent-rose); box-shadow: 0 0 8px var(--accent-rose); display: inline-block;"></span>
+                            <span style="font-size: 10.5px; font-weight: 700; color: var(--accent-rose); letter-spacing: 0.6px; text-transform: uppercase;">Área em Atualização</span>
+                        </div>
+                        <div style="width: 76px; height: 76px; border-radius: 50%; background: linear-gradient(135deg, #FFF1F2 0%, #FFE4E6 100%); border: 2px solid #FDA4AF; display: flex; align-items: center; justify-content: center; margin: 0 auto 18px auto; box-shadow: 0 8px 24px rgba(251, 113, 133, 0.18);">
+                            <span style="font-size: 34px; line-height: 1;">🔧</span>
+                        </div>
+                        <h2 style="font-family: var(--font-header); font-size: 21px; font-weight: 700; color: #0F172A; margin: 0 0 12px 0; line-height: 1.3;">
+                            🔧 Estamos em manutenção!
+                        </h2>
+                        <div style="width: 36px; height: 3px; background: var(--accent-rose); border-radius: 2px; margin: 0 auto 16px auto; opacity: 0.7;"></div>
+                        <p style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.65; margin: 0 auto 18px auto; max-width: 300px;">
+                            Estamos realizando algumas melhorias para oferecer uma experiência ainda melhor para você. Em breve, essa área estará disponível novamente!
+                        </p>
+                        <p style="font-size: 13px; font-weight: 600; color: var(--accent-rose); margin: 0 0 24px 0; line-height: 1.5;">
+                            Agradecemos pela compreensão. 💗
+                        </p>
+                        <button type="button" onclick="switchTab('home')" style="width: 100%; padding: 12px 18px; border-radius: 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s ease; border: 1px solid var(--accent-rose); background: #FFF1F2; color: #0F172A;" onmouseover="this.style.background='var(--accent-rose)'; this.style.color='#FFFFFF';" onmouseout="this.style.background='#FFF1F2'; this.style.color='#0F172A';">
+                            <i data-lucide="home" style="width: 15px; height: 15px;"></i>
+                            <span>Voltar para o Início</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- CONTEÚDO ORIGINAL DA ABA PROPÓSITO PRESERVADO (OCULTO TEMPORARIAMENTE DURANTE A MANUTENÇÃO) -->
+                <div id="proposito-original-content" style="display: none;" aria-hidden="true">
                 <div class="tab-header-section" style="text-align: center; margin-bottom: 20px;">
                     <div style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 14px; border-radius: 20px; background: rgba(232, 165, 152, 0.12); border: 1px solid rgba(232, 165, 152, 0.3); margin-bottom: 10px;">
                         <i data-lucide="book-heart" style="width: 14px; height: 14px; color: var(--accent-rose);"></i>
@@ -905,6 +935,7 @@
                         <strong style="font-size: 14px; color: var(--accent-rose);">Primeira Epístola de João (1 João)</strong>
                     </div>
                 </div>
+            </div>
             </section>
 
             <!-- TAB 5: PERFIL -->
