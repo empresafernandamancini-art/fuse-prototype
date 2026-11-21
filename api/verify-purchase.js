@@ -1,5 +1,6 @@
 // API Endpoint para verificar compras da Cakto por E-mail
 // Caminho do arquivo: /api/verify-purchase.js
+// Versão: 2.0 — Correção crítica: lógica de liberação para novas clientes
 
 export default async function handler(req, res) {
     // Adiciona headers de CORS para permitir chamadas do frontend
@@ -120,9 +121,23 @@ export default async function handler(req, res) {
     const clientId = process.env.CAKTO_CLIENT_ID || '7JcKQV6uMuLEBKLxYL2jD2CyqFuuvsGCJEE8j6bx';
     const clientSecret = process.env.CAKTO_CLIENT_SECRET || 'TSlkII0HF6B6YyEodcOnl19vITpGzHD0Zn4U6AhA3D394Q0sbJ0uJHZhbyB4GU94ZEiGRV5HuyIEpZHCrmIj1OZ6vwPNO4f0cMWEY6DNGPKq61Wb9XuiZv9XYx2Ew4Nz';
 
+    // Helper para fazer fetch com retry e timeout adequado para Vercel serverless
+    async function fetchWithTimeout(url, options, timeoutMs = 8000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const resp = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(timeoutId);
+            return resp;
+        } catch (err) {
+            clearTimeout(timeoutId);
+            throw err;
+        }
+    }
+
     try {
         // 1. Solicita Token OAuth2 à API do Cakto
-        const tokenResponse = await fetch('https://api.cakto.com.br/public_api/token/', {
+        const tokenResponse = await fetchWithTimeout('https://api.cakto.com.br/public_api/token/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -135,105 +150,111 @@ export default async function handler(req, res) {
 
         if (!tokenResponse.ok) {
             const tokenErr = await tokenResponse.json().catch(() => ({}));
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Falha na autenticação com a API do Cakto.', 
-                error: tokenErr 
-            });
+            console.error('Falha no token Cakto:', tokenErr);
+            // Cai no fallback do catálogo
+            throw new Error('token_failed');
         }
 
         const tokenData = await tokenResponse.json();
         const accessToken = tokenData.access_token;
 
-        // 2. Consulta pedidos da cliente com limite expandido
+        const authHeaders = {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+        };
+
+        // 2. Busca pedidos PAGOS da cliente via filtro customer=email
+        //    CORREÇÃO: usar encodeURIComponent apenas no valor do email, não na URL inteira
         let orders = [];
-        const paidOrdersUrl = `https://api.cakto.com.br/public_api/orders/?customer=${encodeURIComponent(emailClean)}&status=paid&limit=100`;
-        const paidOrdersResp = await fetch(paidOrdersUrl, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
+        
+        const paidOrdersUrl = 'https://api.cakto.com.br/public_api/orders/?customer=' + encodeURIComponent(emailClean) + '&status=paid&limit=100';
+        try {
+            const paidOrdersResp = await fetchWithTimeout(paidOrdersUrl, { method: 'GET', headers: authHeaders });
+            if (paidOrdersResp.ok) {
+                const paidData = await paidOrdersResp.json();
+                if (paidData && Array.isArray(paidData.results) && paidData.results.length > 0) {
+                    // Filtra apenas os pedidos que realmente pertencem a este email (segurança extra)
+                    const filtered = paidData.results.filter(o => 
+                        o.customer && o.customer.email && o.customer.email.toLowerCase().trim() === emailClean
+                    );
+                    orders = orders.concat(filtered);
+                    console.log(`Orders paid (filtered by email): ${filtered.length} of ${paidData.results.length}`);
+                }
             }
-        });
-
-        if (paidOrdersResp.ok) {
-            const paidData = await paidOrdersResp.json();
-            if (paidData && Array.isArray(paidData.results)) {
-                orders = orders.concat(paidData.results);
-            }
+        } catch (ordersErr) {
+            console.warn('Erro ao buscar pedidos pagos:', ordersErr.message);
         }
 
-        // Busca geral para verificar pedidos de outros status, cancelamentos ou estornos
-        const allOrdersUrl = `https://api.cakto.com.br/public_api/orders/?customer=${encodeURIComponent(emailClean)}&limit=100`;
-        const allOrdersResp = await fetch(allOrdersUrl, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
+        // 3. Busca geral de pedidos (para verificar estornos/chargebacks)
+        const allOrdersUrl = 'https://api.cakto.com.br/public_api/orders/?customer=' + encodeURIComponent(emailClean) + '&limit=100';
+        try {
+            const allOrdersResp = await fetchWithTimeout(allOrdersUrl, { method: 'GET', headers: authHeaders });
+            if (allOrdersResp.ok) {
+                const allData = await allOrdersResp.json();
+                if (allData && Array.isArray(allData.results)) {
+                    const existingIds = new Set(orders.map(o => o.id));
+                    // Filtra apenas os pedidos que realmente pertencem a este email
+                    allData.results.forEach(o => {
+                        const orderEmail = o.customer && o.customer.email ? o.customer.email.toLowerCase().trim() : '';
+                        if (!existingIds.has(o.id) && orderEmail === emailClean) {
+                            orders.push(o);
+                        }
+                    });
+                }
             }
-        });
-
-        if (allOrdersResp.ok) {
-            const allData = await allOrdersResp.json();
-            if (allData && Array.isArray(allData.results)) {
-                const existingIds = new Set(orders.map(o => o.id));
-                allData.results.forEach(o => {
-                    if (!existingIds.has(o.id)) orders.push(o);
-                });
-            }
+        } catch (allOrdersErr) {
+            console.warn('Erro ao buscar todos os pedidos:', allOrdersErr.message);
         }
 
-        // 3. Consulta o status das assinaturas da usuária na Cakto
+        console.log(`Total orders found for ${emailClean}: ${orders.length}`);
+
+        // 4. Consulta assinaturas usando search= (que a Cakto filtra por nome/email)
         let userSubs = [];
         try {
-            const subsUrl = `https://api.cakto.com.br/public_api/subscriptions/?search=${encodeURIComponent(emailClean)}`;
-            const subsResp = await fetch(subsUrl, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            const subsUrl = 'https://api.cakto.com.br/public_api/subscriptions/?search=' + encodeURIComponent(emailClean) + '&limit=50';
+            const subsResp = await fetchWithTimeout(subsUrl, { method: 'GET', headers: authHeaders });
             if (subsResp.ok) {
                 const subsData = await subsResp.json();
                 if (subsData && Array.isArray(subsData.results)) {
-                    userSubs = subsData.results.filter(s => 
+                    // CORREÇÃO CRÍTICA: filtra apenas subscriptions cujo email do customer bate exatamente
+                    userSubs = subsData.results.filter(s =>
                         s.customer && s.customer.email && s.customer.email.toLowerCase().trim() === emailClean
                     );
+                    console.log(`Subscriptions (filtered): ${userSubs.length} of ${subsData.results.length}`);
                 }
             }
         } catch (subErr) {
-            console.warn('Erro ao consultar assinaturas:', subErr);
+            console.warn('Erro ao consultar assinaturas:', subErr.message);
         }
 
-        // Fallback: se a busca de assinaturas por e-mail não retornou nada, consulta direto pelo subscriptionId do pedido
-        if (userSubs.length === 0) {
-            const subId = orders.map(o => o.subscription).find(s => !!s);
-            if (subId) {
+        // 5. Fallback: busca sub por ID extraído dos pedidos (caso a busca por search= retorne vazio)
+        if (userSubs.length === 0 && orders.length > 0) {
+            const subIds = [...new Set(orders.map(o => o.subscription).filter(s => !!s))];
+            for (const subId of subIds.slice(0, 3)) {
                 try {
-                    const singleSubResp = await fetch(`https://api.cakto.com.br/public_api/subscriptions/${subId}/`, {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
+                    const singleSubResp = await fetchWithTimeout(
+                        `https://api.cakto.com.br/public_api/subscriptions/${subId}/`,
+                        { method: 'GET', headers: authHeaders }
+                    );
                     if (singleSubResp.ok) {
                         const singleSubData = await singleSubResp.json();
                         if (singleSubData && singleSubData.id) {
                             userSubs.push(singleSubData);
+                            console.log(`Sub via ID ${subId}: status=${singleSubData.status}`);
                         }
                     }
                 } catch (e) {
-                    console.warn('Erro ao consultar assinatura individual:', e);
+                    console.warn('Erro ao consultar assinatura individual:', e.message);
                 }
             }
         }
 
+        // 6. LÓGICA DE DECISÃO
+        // Uma assinatura é considerada "ativa" se tem status active OU se tem pagamento recente dentro do período pago
         const hasActiveSubscription = userSubs.some(s => (s.status || '').toLowerCase() === 'active');
         const hasSubscriptions = userSubs.length > 0;
 
-        // 4. Analisa cancelamentos, estornos e validade do período mensal
+        // Analisa cancelamentos, estornos e encontra o pedido mais recente aprovado
         let customerName = 'Cliente FUSE';
         let latestPaidOrder = null;
         let hasRefundOrChargeback = false;
@@ -254,45 +275,48 @@ export default async function handler(req, res) {
             }
         });
 
-        // REGRAS DE REVOGAÇÃO E VALIDADE DO ACESSO:
+        console.log(`hasActiveSubscription: ${hasActiveSubscription}, hasSubscriptions: ${hasSubscriptions}, latestPaidOrder: ${latestPaidOrder ? latestPaidOrder.id : 'none'}, hasRefund: ${hasRefundOrChargeback}`);
+
+        // Calcula data de fim do período pago (ciclo mensal de 31 dias)
         let isCanceled = false;
         let cancelReason = '';
         let periodEndDate = null;
 
         if (latestPaidOrder) {
             const lastPaidDate = new Date(latestPaidOrder.paidAt || latestPaidOrder.createdAt);
-            // Prazo padrão do ciclo mensal: 31 dias a partir do pagamento aprovado
             periodEndDate = new Date(lastPaidDate.getTime() + (31 * 24 * 60 * 60 * 1000));
         }
 
-        // Validação de validade expressa configurada para clientes específicos (ex: gabioff1234@gmail.com até 22 de outubro)
+        // Sobrescreve período com data expressa se configurada para esta cliente
         if (VERIFIED_CUSTOMERS[emailClean] && VERIFIED_CUSTOMERS[emailClean].validUntil) {
             periodEndDate = new Date(VERIFIED_CUSTOMERS[emailClean].validUntil);
         }
 
         const now = new Date();
 
-        if (hasRefundOrChargeback && !hasActiveSubscription) {
-            // Estorno ou contestação bancária: revoga imediatamente
+        // REGRAS DE REVOGAÇÃO:
+        if (hasRefundOrChargeback && !hasActiveSubscription && !latestPaidOrder) {
+            // Estorno ou chargeback sem qualquer pedido ativo: revoga
             isCanceled = true;
             cancelReason = 'O pagamento da sua assinatura foi estornado ou cancelado.';
         } else if (hasSubscriptions && !hasActiveSubscription) {
-            // Assinatura foi cancelada/não renovará automaticamente na Cakto:
-            // Se o período já pago ainda está vigente (dentro dos 31 dias ou data de vencimento), mantém o acesso liberado!
+            // Tem assinatura(s) mas NENHUMA está ativa:
+            // Mantém acesso se ainda estiver dentro do período pago (31 dias)
             if (latestPaidOrder && periodEndDate && now <= periodEndDate) {
-                isCanceled = false;
-            } else {
+                isCanceled = false; // Período pago ainda vigente
+                console.log(`Subscription canceled but within paid period until ${periodEndDate.toISOString()}`);
+            } else if (latestPaidOrder && (!periodEndDate || now > periodEndDate)) {
                 isCanceled = true;
                 cancelReason = 'O período da sua assinatura mensal expirou e não foi renovado na Cakto.';
             }
-        } else if (latestPaidOrder && latestPaidOrder.type === 'subscription' && !hasActiveSubscription) {
-            if (periodEndDate && now > periodEndDate) {
+            // Se não tem latestPaidOrder mas tem sub cancelada, bloqueia
+            else if (!latestPaidOrder) {
                 isCanceled = true;
-                cancelReason = 'O período da sua assinatura mensal expirou e não foi renovado.';
+                cancelReason = 'Sua assinatura foi cancelada e não há pagamentos ativos registrados.';
             }
         }
 
-        // Se a assinatura foi cancelada e o período pago já encerrou, bloqueia o acesso
+        // Se revogado, retorna negativa
         if (isCanceled) {
             return res.status(200).json({
                 success: false,
@@ -304,12 +328,12 @@ export default async function handler(req, res) {
             });
         }
 
-        // Se possui assinatura ativa OU pagamento vigente dentro do período pago, libera os acessos
+        // APROVAÇÃO: Tem assinatura ativa OU tem pedido pago ainda vigente
         if (hasActiveSubscription || (latestPaidOrder && !isCanceled)) {
             return res.status(200).json({
                 success: true,
                 isCanceled: false,
-                message: 'Assinatura ativa encontrada!',
+                message: hasActiveSubscription ? 'Assinatura ativa encontrada!' : 'Pagamento ativo dentro do período vigente!',
                 customerName: customerName,
                 email: emailClean,
                 status: 'paid',
@@ -320,7 +344,7 @@ export default async function handler(req, res) {
             });
         }
 
-        // Fallback usando o catálogo de clientes confirmados do mês
+        // Fallback: catálogo de clientes verificadas manualmente
         const verified = VERIFIED_CUSTOMERS[emailClean];
         if (verified) {
             let customerActive = verified.status === 'active';
@@ -364,7 +388,7 @@ export default async function handler(req, res) {
         });
 
     } catch (error) {
-        console.error('Erro na verificação de compra:', error);
+        console.error('Erro na verificação de compra:', error.message);
 
         // Fallback de contingência se a API externa da Cakto estiver indisponível
         const verified = VERIFIED_CUSTOMERS[emailClean];
