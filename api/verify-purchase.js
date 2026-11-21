@@ -1,6 +1,6 @@
 // API Endpoint para verificar compras da Cakto por E-mail
 // Caminho do arquivo: /api/verify-purchase.js
-// Versão: 2.0 — Correção crítica: lógica de liberação para novas clientes
+// Versão: 2.1 — Debug inline para diagnostico Vercel + correcao critica liberacao
 
 export default async function handler(req, res) {
     // Adiciona headers de CORS para permitir chamadas do frontend
