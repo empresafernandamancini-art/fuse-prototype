@@ -15,7 +15,9 @@ export default async function handler(req, res) {
         return res.status(200).end();
     }
 
-    const { email } = req.query;
+    const { email, debug } = req.query;
+    const isDebug = debug === '1';
+    const dbgLog = [];
 
     if (!email) {
         return res.status(400).json({ success: false, message: 'Por favor, insira um e-mail válido.' });
@@ -136,6 +138,8 @@ export default async function handler(req, res) {
     }
 
     try {
+        dbgLog.push(`[start] email=${emailClean}`);
+
         // 1. Solicita Token OAuth2 à API do Cakto
         const tokenResponse = await fetchWithTimeout('https://api.cakto.com.br/public_api/token/', {
             method: 'POST',
@@ -151,12 +155,14 @@ export default async function handler(req, res) {
         if (!tokenResponse.ok) {
             const tokenErr = await tokenResponse.json().catch(() => ({}));
             console.error('Falha no token Cakto:', tokenErr);
+            dbgLog.push(`[token] FAILED status=${tokenResponse.status}`);
             // Cai no fallback do catálogo
             throw new Error('token_failed');
         }
 
         const tokenData = await tokenResponse.json();
         const accessToken = tokenData.access_token;
+        dbgLog.push(`[token] OK len=${accessToken ? accessToken.length : 0}`);
 
         const authHeaders = {
             'Authorization': `Bearer ${accessToken}`,
@@ -169,28 +175,36 @@ export default async function handler(req, res) {
         
         const paidOrdersUrl = 'https://api.cakto.com.br/public_api/orders/?customer=' + encodeURIComponent(emailClean) + '&status=paid&limit=100';
         try {
+            dbgLog.push(`[orders_paid] fetching...`);
             const paidOrdersResp = await fetchWithTimeout(paidOrdersUrl, { method: 'GET', headers: authHeaders });
+            dbgLog.push(`[orders_paid] status=${paidOrdersResp.status}`);
             if (paidOrdersResp.ok) {
                 const paidData = await paidOrdersResp.json();
+                dbgLog.push(`[orders_paid] count=${paidData.count} results=${paidData.results ? paidData.results.length : 0}`);
                 if (paidData && Array.isArray(paidData.results) && paidData.results.length > 0) {
                     // Filtra apenas os pedidos que realmente pertencem a este email (segurança extra)
                     const filtered = paidData.results.filter(o => 
                         o.customer && o.customer.email && o.customer.email.toLowerCase().trim() === emailClean
                     );
                     orders = orders.concat(filtered);
+                    dbgLog.push(`[orders_paid] filtered=${filtered.length}`);
                     console.log(`Orders paid (filtered by email): ${filtered.length} of ${paidData.results.length}`);
                 }
             }
         } catch (ordersErr) {
+            dbgLog.push(`[orders_paid] ERROR: ${ordersErr.message}`);
             console.warn('Erro ao buscar pedidos pagos:', ordersErr.message);
         }
 
         // 3. Busca geral de pedidos (para verificar estornos/chargebacks)
         const allOrdersUrl = 'https://api.cakto.com.br/public_api/orders/?customer=' + encodeURIComponent(emailClean) + '&limit=100';
         try {
+            dbgLog.push(`[orders_all] fetching...`);
             const allOrdersResp = await fetchWithTimeout(allOrdersUrl, { method: 'GET', headers: authHeaders });
+            dbgLog.push(`[orders_all] status=${allOrdersResp.status}`);
             if (allOrdersResp.ok) {
                 const allData = await allOrdersResp.json();
+                dbgLog.push(`[orders_all] count=${allData.count} results=${allData.results ? allData.results.length : 0}`);
                 if (allData && Array.isArray(allData.results)) {
                     const existingIds = new Set(orders.map(o => o.id));
                     // Filtra apenas os pedidos que realmente pertencem a este email
@@ -203,27 +217,34 @@ export default async function handler(req, res) {
                 }
             }
         } catch (allOrdersErr) {
+            dbgLog.push(`[orders_all] ERROR: ${allOrdersErr.message}`);
             console.warn('Erro ao buscar todos os pedidos:', allOrdersErr.message);
         }
 
         console.log(`Total orders found for ${emailClean}: ${orders.length}`);
+        dbgLog.push(`[total] orders=${orders.length}`);
 
         // 4. Consulta assinaturas usando search= (que a Cakto filtra por nome/email)
         let userSubs = [];
         try {
             const subsUrl = 'https://api.cakto.com.br/public_api/subscriptions/?search=' + encodeURIComponent(emailClean) + '&limit=50';
+            dbgLog.push(`[subs] fetching...`);
             const subsResp = await fetchWithTimeout(subsUrl, { method: 'GET', headers: authHeaders });
+            dbgLog.push(`[subs] status=${subsResp.status}`);
             if (subsResp.ok) {
                 const subsData = await subsResp.json();
+                dbgLog.push(`[subs] count=${subsData.count} results=${subsData.results ? subsData.results.length : 0}`);
                 if (subsData && Array.isArray(subsData.results)) {
                     // CORREÇÃO CRÍTICA: filtra apenas subscriptions cujo email do customer bate exatamente
                     userSubs = subsData.results.filter(s =>
                         s.customer && s.customer.email && s.customer.email.toLowerCase().trim() === emailClean
                     );
+                    dbgLog.push(`[subs] filtered=${userSubs.length} statuses=${userSubs.map(s => s.status).join(',')}`);
                     console.log(`Subscriptions (filtered): ${userSubs.length} of ${subsData.results.length}`);
                 }
             }
         } catch (subErr) {
+            dbgLog.push(`[subs] ERROR: ${subErr.message}`);
             console.warn('Erro ao consultar assinaturas:', subErr.message);
         }
 
@@ -276,6 +297,7 @@ export default async function handler(req, res) {
         });
 
         console.log(`hasActiveSubscription: ${hasActiveSubscription}, hasSubscriptions: ${hasSubscriptions}, latestPaidOrder: ${latestPaidOrder ? latestPaidOrder.id : 'none'}, hasRefund: ${hasRefundOrChargeback}`);
+        dbgLog.push(`[decision] hasActiveSub=${hasActiveSubscription} hasSubs=${hasSubscriptions} latestPaid=${latestPaidOrder ? latestPaidOrder.id : 'none'} refund=${hasRefundOrChargeback}`);
 
         // Calcula data de fim do período pago (ciclo mensal de 31 dias)
         let isCanceled = false;
@@ -384,10 +406,12 @@ export default async function handler(req, res) {
             success: false,
             isCanceled: false,
             message: 'Nenhum pagamento aprovado ou ativo foi encontrado para este e-mail no Cakto.',
-            purchasedProducts: []
+            purchasedProducts: [],
+            ...(isDebug ? { debug: dbgLog } : {})
         });
 
     } catch (error) {
+        dbgLog.push(`[catch] ${error.message}`);
         console.error('Erro na verificação de compra:', error.message);
 
         // Fallback de contingência se a API externa da Cakto estiver indisponível
@@ -429,7 +453,8 @@ export default async function handler(req, res) {
         return res.status(500).json({ 
             success: false, 
             message: 'Erro interno ao processar a verificação da compra.',
-            error: error.message 
+            error: error.message,
+            ...(isDebug ? { debug: dbgLog } : {})
         });
     }
 }
