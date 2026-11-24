@@ -1,4 +1,4 @@
-// FUSE - Protótipo de Alta Fidelidade (Lógica Expandida)
+﻿// FUSE - Protótipo de Alta Fidelidade (Lógica Expandida)
 
 // Banco de Dados de Conteúdo do FUSE (Simulado)
 const workoutsDB = [
@@ -499,6 +499,16 @@ if (!userState.proposito) {
 if (!Array.isArray(userState.proposito.completedDays)) userState.proposito.completedDays = [];
 if (!userState.proposito.reflections || typeof userState.proposito.reflections !== 'object') userState.proposito.reflections = {};
 if (!userState.proposito.activeDay) userState.proposito.activeDay = 1;
+
+// Inicializa e valida estrutura do Jejum de Ester (3 Dias)
+if (!userState.jejumEster || typeof userState.jejumEster !== 'object') {
+    userState.jejumEster = {
+        completedDays: [],
+        notes: { "1": "", "2": "", "3": "" }
+    };
+}
+if (!Array.isArray(userState.jejumEster.completedDays)) userState.jejumEster.completedDays = [];
+if (!userState.jejumEster.notes || typeof userState.jejumEster.notes !== 'object') userState.jejumEster.notes = { "1": "", "2": "", "3": "" };
 
 // Inicializa e valida estrutura de Treinos Redesenhados
 if (userState.workoutSelectedDay === undefined || userState.workoutSelectedDay === null) {
@@ -4110,178 +4120,180 @@ function ensurePropositoState() {
     }
 }
 
-// CONTROLE DE MANUTENÇÃO TEMPORÁRIA DA ABA PROPÓSITO
-const IS_PROPOSITO_MAINTENANCE = true;
+// ==========================================
+// MÓDULO: JEJUM DE ESTER (3 DIAS)
+// ==========================================
 
-function checkPropositoMaintenance() {
-    const maintenanceEl = document.getElementById("proposito-maintenance-screen");
-    return (typeof IS_PROPOSITO_MAINTENANCE !== 'undefined' && IS_PROPOSITO_MAINTENANCE) || (maintenanceEl && maintenanceEl.style.display !== "none");
+function ensureJejumState() {
+    if (!userState) return;
+    if (!userState.jejumEster || typeof userState.jejumEster !== 'object') {
+        userState.jejumEster = {
+            completedDays: [],
+            notes: { "1": "", "2": "", "3": "" }
+        };
+    }
+    if (!Array.isArray(userState.jejumEster.completedDays)) {
+        userState.jejumEster.completedDays = [];
+    }
+    if (!userState.jejumEster.notes || typeof userState.jejumEster.notes !== 'object') {
+        userState.jejumEster.notes = { "1": "", "2": "", "3": "" };
+    }
 }
 
-function selectPropositoDay(dayNum) {
-    if (checkPropositoMaintenance()) return;
-    ensurePropositoState();
-    if (dayNum < 1 || dayNum > 7) return;
-    userState.proposito.activeDay = dayNum;
-    renderPropositoUI();
-}
+function renderJejumUI() {
+    ensureJejumState();
+    if (!userState || !userState.jejumEster) return;
 
-function togglePropositoCheckin() {
-    if (checkPropositoMaintenance()) return;
-    ensurePropositoState();
-    const activeDay = userState.proposito.activeDay;
-    const completed = userState.proposito.completedDays;
-    const idx = completed.indexOf(activeDay);
-    
-    if (idx >= 0) {
-        completed.splice(idx, 1);
-    } else {
-        completed.push(activeDay);
-        completed.sort((a, b) => a - b);
-        
-        // Se concluiu todos os 7 dias
-        if (completed.length === 7) {
-            setTimeout(() => {
-                alert("Parabéns por concluir os 7 Dias do Evangelho de João! 🤍\nQue a Palavra continue viva e frutificando no seu coração todos os dias.");
-            }, 300);
-        }
-    }
-    
-    saveStateToStorage();
-    renderPropositoUI();
-}
+    const completed = userState.jejumEster.completedDays || [];
+    const notes = userState.jejumEster.notes || {};
+    const totalDays = 3;
+    const completedCount = completed.length;
+    const percent = Math.round((completedCount / totalDays) * 100);
 
-function savePropositoReflection() {
-    if (checkPropositoMaintenance()) return;
-    // Guia de anotações manuais no caderno / Bíblia
-}
+    // 1. Atualiza Texto e Barra de Progresso
+    const progressTextEl = document.getElementById("jejum-progress-text");
+    const progressFillEl = document.getElementById("jejum-progress-fill");
+    if (progressTextEl) {
+        progressTextEl.innerText = `${completedCount} de ${totalDays} dias (${percent}%)`;
+    }
+    if (progressFillEl) {
+        progressFillEl.style.width = `${percent}%`;
+    }
 
-function renderPropositoUI() {
-    if (checkPropositoMaintenance()) {
-        if (typeof lucide !== 'undefined' && lucide.createIcons) {
-            lucide.createIcons();
+    // 2. Atualiza os Badges superiores
+    for (let d = 1; d <= 3; d++) {
+        const isDone = completed.includes(d);
+        const badgeEl = document.getElementById(`jejum-badge-day-${d}`);
+        const statusEl = document.getElementById(`jejum-badge-status-${d}`);
+        if (badgeEl && statusEl) {
+            if (isDone) {
+                badgeEl.style.background = "#FFF1F2";
+                badgeEl.style.borderColor = "#FDA4AF";
+                statusEl.innerText = "Concluído ✓";
+                statusEl.style.color = "var(--accent-rose)";
+            } else {
+                badgeEl.style.background = "#FFFFFF";
+                badgeEl.style.borderColor = "#E2E8F0";
+                statusEl.innerText = "Pendente";
+                statusEl.style.color = "#94A3B8";
+            }
         }
-        return;
-    }
-    ensurePropositoState();
-    
-    const counterEl = document.getElementById("proposito-counter-txt");
-    const fillEl = document.getElementById("proposito-progress-fill");
-    const daysContainer = document.getElementById("proposito-days-container");
-    const dayBadge = document.getElementById("proposito-day-badge");
-    const readingTitle = document.getElementById("proposito-reading-title");
-    const readingTheme = document.getElementById("proposito-reading-theme");
-    const checkinBtn = document.getElementById("btn-proposito-checkin");
-    const checkinBoxIcon = document.getElementById("checkin-checkbox-icon");
-    const checkinBtnLabel = document.getElementById("checkin-btn-label");
-    const completionCard = document.getElementById("proposito-completion-card");
-    
-    if (!counterEl || !fillEl || !daysContainer) return;
-    
-    const completedCount = userState.proposito.completedDays.length;
-    counterEl.innerText = `Propósito: ${completedCount}/7 dias concluídos`;
-    const percent = Math.round((completedCount / 7) * 100);
-    fillEl.style.width = `${percent}%`;
-    
-    // Renderiza a linha do tempo dos 7 dias
-    daysContainer.innerHTML = "";
-    for (let d = 1; d <= 7; d++) {
-        const isCompleted = userState.proposito.completedDays.includes(d);
-        const isSelected = userState.proposito.activeDay === d;
-        
-        const dayBtn = document.createElement("button");
-        dayBtn.type = "button";
-        dayBtn.onclick = () => selectPropositoDay(d);
-        
-        let bg = "#F8FAFC";
-        let border = "1px solid #E2E8F0";
-        let textColor = "var(--text-secondary)";
-        let iconHtml = `<span style="font-size: 13px; opacity: 0.6;">○</span>`;
-        
-        if (isCompleted) {
-            bg = "#FFF1F2";
-            border = "1px solid #FDA4AF";
-            textColor = "var(--accent-rose)";
-            iconHtml = `<span style="font-size: 13px; font-weight: bold; color: var(--accent-rose);">✓</span>`;
+
+        // 3. Atualiza os cards dos dias e botões checkbox
+        const cardEl = document.getElementById(`jejum-card-day-${d}`);
+        const btnEl = document.getElementById(`btn-jejum-check-${d}`);
+        const iconEl = document.getElementById(`jejum-check-icon-${d}`);
+        const labelEl = document.getElementById(`jejum-check-label-${d}`);
+        const pillEl = document.getElementById(`jejum-check-pill-${d}`);
+        const textareaEl = document.getElementById(`jejum-notes-${d}`);
+
+        if (cardEl && btnEl && iconEl && labelEl && pillEl) {
+            if (isDone) {
+                cardEl.style.borderColor = "#FDA4AF";
+                cardEl.style.background = "linear-gradient(145deg, #FFFFFF 0%, #FFF5F6 100%)";
+                btnEl.style.background = "#FFF1F2";
+                btnEl.style.borderColor = "var(--accent-rose)";
+                btnEl.style.color = "var(--accent-rose)";
+                iconEl.innerText = "✓";
+                iconEl.style.background = "var(--accent-rose)";
+                iconEl.style.borderColor = "var(--accent-rose)";
+                iconEl.style.color = "#FFFFFF";
+                iconEl.style.fontWeight = "bold";
+                labelEl.innerText = `Dia ${d} concluído com fé!`;
+                pillEl.innerText = "Concluído ✓";
+                pillEl.style.background = "#FECDD3";
+                pillEl.style.color = "var(--accent-rose)";
+            } else {
+                cardEl.style.borderColor = "#F1F5F9";
+                cardEl.style.background = "#FFFFFF";
+                btnEl.style.background = "#F8FAFC";
+                btnEl.style.borderColor = "#E2E8F0";
+                btnEl.style.color = "#475569";
+                iconEl.innerText = "";
+                iconEl.style.background = "#FFFFFF";
+                iconEl.style.borderColor = "#CBD5E1";
+                iconEl.style.color = "transparent";
+                labelEl.innerText = `Marcar Dia ${d} como concluído`;
+                pillEl.innerText = "Pendente";
+                pillEl.style.background = "#E2E8F0";
+                pillEl.style.color = "#64748B";
+            }
         }
-        
-        if (isSelected) {
-            bg = "var(--accent-rose)";
-            border = "1.5px solid var(--accent-rose)";
-            textColor = "#ffffff";
-            dayBtn.style.boxShadow = "0 4px 12px rgba(251, 113, 133, 0.35)";
-        }
-        
-        dayBtn.style.cssText += `
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            padding: 8px 4px;
-            border-radius: 10px;
-            background: ${bg};
-            border: ${border};
-            color: ${textColor};
-            cursor: pointer;
-            transition: all 0.2s ease;
-        `;
-        
-        dayBtn.innerHTML = `
-            ${iconHtml}
-            <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.3px;">Dia ${d}</span>
-        `;
-        
-        daysContainer.appendChild(dayBtn);
-    }
-    
-    // Leitura do dia ativo
-    const activeDay = userState.proposito.activeDay;
-    const schedule = PROPOSITO_SCHEDULE.find(s => s.day === activeDay) || PROPOSITO_SCHEDULE[0];
-    
-    if (dayBadge) dayBadge.innerText = `DIA ${schedule.day}`;
-    if (readingTitle) readingTitle.innerText = schedule.chapters;
-    if (readingTheme) readingTheme.innerText = schedule.theme;
-    
-    const isDayCompleted = userState.proposito.completedDays.includes(activeDay);
-    if (checkinBtn && checkinBoxIcon && checkinBtnLabel) {
-        if (isDayCompleted) {
-            checkinBoxIcon.innerText = "☑";
-            checkinBtnLabel.innerText = "✓ Concluí a leitura de hoje";
-            checkinBtn.style.background = "#ECFDF5";
-            checkinBtn.style.borderColor = "#A7F3D0";
-            checkinBtn.style.color = "#10B981";
-        } else {
-            checkinBoxIcon.innerText = "☐";
-            checkinBtnLabel.innerText = "Concluí a leitura de hoje";
-            checkinBtn.style.background = "#FFF1F2";
-            checkinBtn.style.borderColor = "var(--accent-rose)";
-            checkinBtn.style.color = "var(--accent-rose)";
+
+        // Preenche o textarea se não estiver focado
+        if (textareaEl && document.activeElement !== textareaEl) {
+            textareaEl.value = notes[String(d)] || "";
         }
     }
-    
-    // Exibe ou oculta card de conclusão final
+
+    // 4. Card comemorativo de conclusão
+    const completionCard = document.getElementById("jejum-completion-card");
     if (completionCard) {
-        if (completedCount === 7) {
+        if (completedCount === 3) {
             completionCard.style.display = "block";
         } else {
             completionCard.style.display = "none";
         }
     }
-    
+
     if (window.lucide && lucide.createIcons) {
         lucide.createIcons();
     }
 }
 
-// Compatibilidade com chamadas legadas
-function renderChallengeUI() {
-    renderPropositoUI();
+function toggleJejumDay(dayNum) {
+    ensureJejumState();
+    const completed = userState.jejumEster.completedDays;
+    const idx = completed.indexOf(dayNum);
+    if (idx >= 0) {
+        completed.splice(idx, 1);
+    } else {
+        completed.push(dayNum);
+        completed.sort((a, b) => a - b);
+        if (completed.length === 3) {
+            setTimeout(() => {
+                alert("Parabéns por concluir os 3 dias do Jejum de Ester! 👑🤍\nQue a presença e o favor do Senhor inundem sua vida!");
+            }, 300);
+        }
+    }
+    saveStateToStorage();
+    renderJejumUI();
 }
 
-function selectChallengeDay(dayNum) {
-    selectPropositoDay(dayNum);
+let jejumDebounceTimer = null;
+function handleJejumNoteInput(dayNum, text) {
+    ensureJejumState();
+    userState.jejumEster.notes[String(dayNum)] = text;
+    
+    // Indicador visual de salvamento automático
+    const indicatorEl = document.getElementById(`jejum-save-indicator-${dayNum}`);
+    if (indicatorEl) {
+        indicatorEl.style.opacity = "1";
+    }
+
+    clearTimeout(jejumDebounceTimer);
+    jejumDebounceTimer = setTimeout(() => {
+        saveStateToStorage();
+        if (indicatorEl) {
+            setTimeout(() => {
+                indicatorEl.style.opacity = "0";
+            }, 1200);
+        }
+    }, 400);
 }
+
+// Funções de compatibilidade com chamadas anteriores
+function renderPropositoUI() {
+    renderJejumUI();
+}
+
+function renderChallengeUI() {
+    renderJejumUI();
+}
+
+function selectPropositoDay(dayNum) {}
+function selectChallengeDay(dayNum) {}
+function togglePropositoCheckin() {}
 
 function openPaymentModal() {
     openModal("modal-payment");
